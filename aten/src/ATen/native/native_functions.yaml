@@ -3305,9 +3305,28 @@
   autogen: native_layer_norm_backward.out
   tags: core
 
-- func: rms_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight=None, float? eps=None) -> Tensor
+- func: rms_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight=None, Tensor? bias=None, float eps=1e-05) -> Tensor
   dispatch:
     CompositeImplicitAutograd: rms_norm_symint
+
+- func: native_rms_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CPU: rms_norm_cpu
+    CUDA: rms_norm_cuda
+    MPS: rms_norm_mps
+    CompositeExplicitAutograd: math_native_rms_norm
+    NestedTensorCPU, NestedTensorCUDA: nested_rms_norm
+  autogen: native_rms_norm.out
+  tags: core
+
+- func: native_rms_norm_backward(Tensor grad_out, Tensor input, SymInt[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CPU: rms_norm_backward_cpu
+    CUDA: rms_norm_backward_cuda
+    MPS: rms_norm_backward_mps
+    NestedTensorCPU, NestedTensorCUDA: rms_norm_backward_nested
+  autogen: native_rms_norm_backward.out
+  tags: core
 
 - func: nan_to_num(Tensor self, float? nan=None, float? posinf=None, float? neginf=None) -> Tensor
   variants: function, method

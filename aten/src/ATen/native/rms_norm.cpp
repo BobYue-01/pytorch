@@ -1,5 +1,5 @@
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
-#include <ATen/native/layer_norm.h>
+#include <ATen/native/rms_norm.h>
 
 #include <ATen/core/Tensor.h>
 #include <ATen/Dispatch.h>
@@ -15,11 +15,11 @@
 #include <ATen/ops/empty.h>
 #include <ATen/ops/empty_like.h>
 #include <ATen/ops/empty_like_native.h>
-#include <ATen/ops/layer_norm_native.h>
+#include <ATen/ops/rms_norm_native.h>
 #include <ATen/ops/native_batch_norm.h>
-#include <ATen/ops/native_layer_norm.h>
-#include <ATen/ops/native_layer_norm_backward_native.h>
-#include <ATen/ops/native_layer_norm_native.h>
+#include <ATen/ops/native_rms_norm.h>
+#include <ATen/ops/native_rms_norm_backward_native.h>
+#include <ATen/ops/native_rms_norm_native.h>
 #include <ATen/ops/pow.h>
 #include <ATen/ops/rsqrt.h>
 #include <ATen/ops/rms_norm.h>
@@ -32,9 +32,8 @@
 
 namespace at::native {
 
-static void layer_norm_with_mean_rstd_out(
+static void rms_norm_with_rstd_out(
     at::Tensor& out,
-    at::Tensor& mean,
     at::Tensor& rstd,
     const at::Tensor& input,
     IntArrayRef normalized_shape,
@@ -43,7 +42,7 @@ static void layer_norm_with_mean_rstd_out(
     double eps,
     int64_t M,
     int64_t N) {
-  LayerNormKernel(kCPU, input, gamma, beta, M, N, eps, &out, &mean, &rstd);
+  RmsNormKernel(kCPU, input, gamma, beta, M, N, eps, &out, &rstd);
   const auto input_shape = input.sizes();
   const size_t axis = input.dim() - normalized_shape.size();
 
@@ -59,7 +58,7 @@ static void layer_norm_with_mean_rstd_out(
   rstd = rstd.view(stat_shape);
 }
 
-void layer_norm_cpu_out(
+void rms_norm_cpu_out(
     at::Tensor& out,
     const at::Tensor& input,
     const Tensor& gamma,
@@ -70,10 +69,10 @@ void layer_norm_cpu_out(
   if (M <= 0) {
     return;
   }
-  LayerNormKernel(kCPU, input, gamma, beta, M, N, eps, &out, /*mean=*/nullptr, /*rstd=*/nullptr);
+  RmsNormKernel(kCPU, input, gamma, beta, M, N, eps, &out, /*rstd=*/nullptr);
 }
 
-std::tuple<Tensor, Tensor, Tensor> layer_norm_cpu(
+std::tuple<Tensor, Tensor, Tensor> rms_norm_cpu(
     const Tensor& input,
     IntArrayRef normalized_shape, const std::optional<Tensor>& weight_opt /* optional */, const std::optional<Tensor>& bias_opt /* optional */,
     double eps) {
@@ -88,7 +87,7 @@ std::tuple<Tensor, Tensor, Tensor> layer_norm_cpu(
     check_mixed_data_type(input, weight, bias);
   }
 
-  auto M_N = _check_layer_norm_inputs(input, normalized_shape, weight, bias);
+  auto M_N = _check_rms_norm_inputs(input, normalized_shape, weight, bias);
   auto M = M_N.first;
   auto N = M_N.second;
   auto X = input.expect_contiguous();
@@ -103,18 +102,16 @@ std::tuple<Tensor, Tensor, Tensor> layer_norm_cpu(
       std::nullopt /* pin_memory */,
       at::MemoryFormat::Contiguous);
   const auto dtype = param_scalar_type(input, mixed_type);
-  Tensor mean = at::empty({M}, X->options().dtype(dtype));
   Tensor rstd = at::empty({M}, X->options().dtype(dtype));
 
-  layer_norm_with_mean_rstd_out(Y, mean, rstd, *X, normalized_shape, *gamma, *beta, eps, M, N);
-  return std::make_tuple(std::move(Y), std::move(mean), std::move(rstd));
+  rms_norm_with_rstd_out(Y, rstd, *X, normalized_shape, *gamma, *beta, eps, M, N);
+  return std::make_tuple(std::move(Y), std::move(rstd));
 }
 
-std::tuple<Tensor, Tensor, Tensor> layer_norm_backward_cpu(
+std::tuple<Tensor, Tensor, Tensor> rms_norm_backward_cpu(
     const Tensor& dY,
     const Tensor& input,
     IntArrayRef normalized_shape,
-    const Tensor& mean,
     const Tensor& rstd,
     const std::optional<Tensor>& weight_opt /* optional */,
     const std::optional<Tensor>& bias_opt /* optional */,
@@ -127,7 +124,7 @@ std::tuple<Tensor, Tensor, Tensor> layer_norm_backward_cpu(
       at::borrow_from_optional_tensor(bias_opt);
   const Tensor& bias = *bias_maybe_owned;
 
-  auto M_N = _check_layer_norm_inputs(input, normalized_shape, weight, bias);
+  auto M_N = _check_rms_norm_inputs(input, normalized_shape, weight, bias);
   auto M = M_N.first;
   auto N = M_N.second;
   auto X = input.expect_contiguous();
@@ -179,25 +176,24 @@ std::tuple<Tensor, Tensor, Tensor> layer_norm_backward_cpu(
                         at::MemoryFormat::Contiguous);
   }
   if (M > 0) {
-    LayerNormBackwardKernel(
-        kCPU, dY, *X, mean, rstd, *gamma, M, N, &dX, &dgamma, &dbeta);
+    RmsNormBackwardKernel(
+        kCPU, dY, *X, rstd, *gamma, M, N, &dX, &dgamma, &dbeta);
   }
   return std::make_tuple(std::move(dX), std::move(dgamma), std::move(dbeta));
 }
 
-Tensor layer_norm_symint(
+Tensor rms_norm_symint(
     const Tensor& input,
     c10::SymIntArrayRef normalized_shape, const std::optional<Tensor>& weight_opt /* optional */, const std::optional<Tensor>& bias_opt /* optional */,
-    double eps,
-    bool /* cudnn_enable, deprecated */) {
-  return std::get<0>(at::native_layer_norm_symint(input, normalized_shape, weight_opt, bias_opt, eps));
+    double eps) {
+  return std::get<0>(at::native_rms_norm_symint(input, normalized_shape, weight_opt, bias_opt, eps));
 }
 
-DEFINE_DISPATCH(LayerNormKernel);
-DEFINE_DISPATCH(LayerNormBackwardKernel);
+DEFINE_DISPATCH(RmsNormKernel);
+DEFINE_DISPATCH(RmsNormBackwardKernel);
 
 // Ported from pytorch/xla repo
-std::tuple<Tensor, Tensor, Tensor> math_native_layer_norm(
+std::tuple<Tensor, Tensor, Tensor> math_native_rms_norm(
     const Tensor& input,
     IntArrayRef normalized_shape, const std::optional<Tensor>& weight_opt, const std::optional<Tensor>& bias_opt,
     double eps) {
@@ -207,7 +203,7 @@ std::tuple<Tensor, Tensor, Tensor> math_native_layer_norm(
   c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias_opt);
   const Tensor& bias = *bias_maybe_owned;
 
-  auto M_N = _check_layer_norm_inputs(input, normalized_shape, weight, bias);
+  auto M_N = _check_rms_norm_inputs(input, normalized_shape, weight, bias);
   auto M = M_N.first;
   auto X = input.expect_contiguous();
   auto gamma = weight.expect_contiguous();

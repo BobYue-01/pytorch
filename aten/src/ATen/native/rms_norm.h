@@ -8,7 +8,7 @@ namespace at::native {
 
 namespace {
 
-C10_ALWAYS_INLINE std::pair<int64_t, int64_t> _check_layer_norm_inputs(
+C10_ALWAYS_INLINE std::pair<int64_t, int64_t> _check_rms_norm_inputs(
     const Tensor& input,
     IntArrayRef normalized_shape,
     const Tensor& weight /* optional */,
@@ -62,7 +62,7 @@ C10_ALWAYS_INLINE std::pair<int64_t, int64_t> _check_layer_norm_inputs(
 
 } // namespace
 
-void layer_norm_cpu_out(
+void rms_norm_cpu_out(
     at::Tensor& out,
     const at::Tensor& input,
     const Tensor& gamma,
@@ -79,13 +79,11 @@ using forward_fn = void (*)(
     int64_t /* N */,
     double /* eps */,
     Tensor* /* Y */,
-    Tensor* /* mean */,
     Tensor* /* rstd */);
 
 using backward_fn = void (*)(
     const Tensor& /* dY */,
     const Tensor& /* X */,
-    const Tensor& /* mean */,
     const Tensor& /* rstd */,
     const Tensor& /* gamma */,
     int64_t /* M */,
@@ -94,7 +92,7 @@ using backward_fn = void (*)(
     Tensor* /* dgamma */,
     Tensor* /* dbeta */);
 
-DECLARE_DISPATCH(forward_fn, LayerNormKernel)
-DECLARE_DISPATCH(backward_fn, LayerNormBackwardKernel)
+DECLARE_DISPATCH(forward_fn, RmsNormKernel)
+DECLARE_DISPATCH(backward_fn, RmsNormBackwardKernel)
 
 } // namespace at::native
